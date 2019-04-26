@@ -6,7 +6,7 @@
 
 ### Data
 
-The original dataset is from the lab of Dr. Lalita Ramakrishnan. The images of fish and cropped fish were kindly shared with me, and I've done the pre-processing.
+The original dataset is from the lab of [Dr. Lalita Ramakrishnan](https://www.med.cam.ac.uk/ramakrishnan/). The images of fish and cropped fish were kindly shared with me, and I've done the pre-processing.
 
 You can find it in folder data/fish.
 
