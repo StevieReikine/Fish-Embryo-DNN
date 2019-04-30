@@ -17,13 +17,14 @@ from keras.optimizers import *
 from keras.callbacks import ModelCheckpoint, LearningRateScheduler
 from keras import backend as keras
 
-#get set number (batch size) of images from two folders (take path as input) and create two tensors- one of raw images and the second of the corresponding cropped images
-data_path = './fish-test/'
-label_path = './fish-test_BLACKED-OUT/'
-#check that both paths have the same files
+# get set number (batch size) of images from two folders (take path as input) and create two tensors- one of raw images and the second of the corresponding cropped images
+data_path = './training_data/original/'
+label_path = './training_data/blacked_out/'
+# check that both paths have the same files
 filenames_fish = os.listdir(data_path)
 filenames_blackedout = os.listdir(label_path)
-if len(filenames_fish) == len(filenames_blackedout):
+
+if (len(filenames_fish) == len(filenames_blackedout)):
     print('Same number of files.')
 else:
     print('Different number of files.')
@@ -33,17 +34,18 @@ for filename in filenames_fish:
         filenames_confirmed.append(filename)
     else:
         print(filename + ' is not in blacked out folder')
-#training data generator        
+
+# training data generator        
 def DataGenerator(batch_size, data_path, label_path, filenames_confirmed):
     for i in range (0, len(filenames_confirmed)//batch_size):
         # read files into arrays    
         fish_images = []
         fish_labels = []
         for b in range (0, batch_size):
-            image = io.imread(data_path + filenames_confirmed[i + b])
+            image = io.imread(data_path + filenames_confirmed[i * batch_size + b])
             fish_images.append(image)
-            #could implement check for same file name here (if have more than ~hundred files)
-            label = io.imread(label_path + filenames_confirmed[i + b])
+            # could implement check for same file name here (if have more than ~hundred files)
+            label = io.imread(label_path + filenames_confirmed[i * batch_size + b])
             fish_labels.append(label)
         
         fish_images = np.array(fish_images)
@@ -60,34 +62,12 @@ def DataGenerator(batch_size, data_path, label_path, filenames_confirmed):
 
         # scale data and labels to 256 x 256 x 1 to be optimal for current u-net architecture
         scale = 8   #value by which to scale down the images, 2048/256 = 8
-        resized_fish = resize(resized_fish, (resized_fish.shape[0], resized_fish.shape[1] / scale, resized_fish.shape[2] / scale,1), anti_aliasing=True)
-        resized_masks = resize(resized_masks, (resized_masks.shape[0], resized_masks.shape[1] / scale, resized_masks.shape[2] / scale,1), anti_aliasing=True)
-        print(resized_fish.shape)
+        resized_fish = resize(resized_fish, (resized_fish.shape[0], resized_fish.shape[1] // scale, resized_fish.shape[2] // scale,1), anti_aliasing=True)
+        resized_masks = resize(resized_masks, (resized_masks.shape[0], resized_masks.shape[1] // scale, resized_masks.shape[2] // scale,1), anti_aliasing=True)
         yield (resized_fish,resized_masks)
 
 
-# print out plots of images to see data and labels (check)
-def plot_dataset(data, data_name, label, label_name, display_num):
-    num_images = len(data)
-    r_choices = np.random.choice(num_images, display_num)
-    plt.figure(figsize=(10,15))
-    for i in range(0, display_num*2, 2):
-        img_num = r_choices[i // 2]
-        image = data[img_num]
-        mask = label[img_num]
-        plt.subplot(display_num, 2, i + 1)
-        plt.imshow(image, cmap='gray')
-        plt.title(data_name)
-        plt.subplot(display_num, 2, i + 2)
-        plt.imshow(mask, cmap='gray')
-        plt.title(label_name)
-    plt.show()
-
-#plot_dataset(resized_fish,"fish", resized_masks, "masks", 4)
-
-
 # U-NET architecture, largely followed from https://github.com/zhixuhao/unet
-
 def unet(pretrained_weights = None,input_size = (256,256,1)):
     inputs = Input(input_size)
     conv1 = Conv2D(64, 3, activation = 'relu', padding = 'same', kernel_initializer = 'he_normal')(inputs)
@@ -142,15 +122,34 @@ def unet(pretrained_weights = None,input_size = (256,256,1)):
     return model
 
 # training 
-batch_size = 3
+batch_size = 5
 
-myData = DataGenerator(batch_size, resized_fish, resized_masks, filenames_confirmed)
+myData = DataGenerator(batch_size, data_path, label_path, filenames_confirmed)
 model = unet()
 model_checkpoint = ModelCheckpoint('unet_fish.hdf5', monitor='loss',verbose=1, save_best_only=True)
-model.fit_generator(myData,steps_per_epoch=3,epochs=1,callbacks=[model_checkpoint])
+model.fit_generator(myData,steps_per_epoch=4,epochs=4,callbacks=[model_checkpoint])
 
 # test output
+test_path = './fish-test/'
+test_img_list = os.listdir(test_path)
+test_img_1 = io.imread(test_path + test_img_list[0])
+test_img_1 = np.array(test_img_1)
+test_img_1 = np.pad(test_img_1,((2,2),(0,0)),'minimum')
+test_img_1 = resize(test_img_1, (test_img_1.shape[0]//8, test_img_1.shape[1]//8), anti_aliasing=True)
+test_img_1 = np.reshape(test_img_1, (1,) + test_img_1.shape + (1,))
 
+img = test_img_1[0,:,:,0]
+plt.figure(figsize=(10,10))
+plt.imshow(img, cmap = 'gray')
+plt.title("test")
+plt.show()
 
+prediction = model.predict(test_img_1)
+
+img2 = prediction[0,:,:,0]
+plt.figure(figsize=(10,10))
+plt.imshow(img2, cmap = 'gray')
+plt.title("output")
+plt.show()
 
 # count how many bright pixels are present
