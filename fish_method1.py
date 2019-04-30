@@ -17,49 +17,54 @@ from keras.optimizers import *
 from keras.callbacks import ModelCheckpoint, LearningRateScheduler
 from keras import backend as keras
 
-#get images from two folders (take path as input) and create two tensors- one of raw images and the second of the corresponding cropped images
-def getData(data_path, label_path):
-    #check that both paths have the same files
-    filenames_fish = os.listdir(data_path)
-    filenames_blackedout = os.listdir(label_path)
-    if len(filenames_fish) == len(filenames_blackedout):
-        print('Same number of files.')
-    else:
-        print('Different number of files.')
-    filenames_confirmed = [] 
-    for filename in filenames_fish:
-        if filename in filenames_blackedout:
-            filenames_confirmed.append(filename)
-        else:
-            print(filename + ' is not in blacked out folder')
-
-    # read files into arrays    
-    fish_images = []
-    fish_labels = []
-    for file in filenames_confirmed:
-        image = io.imread(data_path + file)
-        fish_images.append(image)
-        #could implement check for same file name here (perhaps better than first check, above)
-        label = io.imread(label_path + file)
-        fish_labels.append(label)
-
-    return np.array(fish_images), np.array(fish_labels)
-
+#get set number (batch size) of images from two folders (take path as input) and create two tensors- one of raw images and the second of the corresponding cropped images
 data_path = './fish-test/'
 label_path = './fish-test_BLACKED-OUT/'
-fish_images, fish_labels = getData(data_path, label_path)
-print(fish_images.shape)
+#check that both paths have the same files
+filenames_fish = os.listdir(data_path)
+filenames_blackedout = os.listdir(label_path)
+if len(filenames_fish) == len(filenames_blackedout):
+    print('Same number of files.')
+else:
+    print('Different number of files.')
+filenames_confirmed = [] 
+for filename in filenames_fish:
+    if filename in filenames_blackedout:
+        filenames_confirmed.append(filename)
+    else:
+        print(filename + ' is not in blacked out folder')
+#training data generator        
+def DataGenerator(batch_size, data_path, label_path, filenames_confirmed):
+    for i in range (0, len(filenames_confirmed)//batch_size):
+        # read files into arrays    
+        fish_images = []
+        fish_labels = []
+        for b in range (0, batch_size):
+            image = io.imread(data_path + filenames_confirmed[i + b])
+            fish_images.append(image)
+            #could implement check for same file name here (if have more than ~hundred files)
+            label = io.imread(label_path + filenames_confirmed[i + b])
+            fish_labels.append(label)
+        
+        fish_images = np.array(fish_images)
+        fish_labels = np.array(fish_images)
 
-# generate labeled data to use for training
-# from cropped images make array of labels- 0 or 1 for counting or not counting, based on input threshold
-threshold = 60
-fish_masks = fish_labels >= threshold
+        # generate labeled data to use for training
+        # from cropped images make array of labels- 0 or 1 for counting or not counting, based on input threshold
+        threshold = 60
+        fish_masks = fish_labels >= threshold
 
-# add black pixels to side to reshape from 2044x2048 to 2048x2048
+        # add black pixels to side to reshape from 2044x2048 to 2048x2048
+        resized_fish= np.pad(fish_images,((0,0),(2,2),(0,0)),'minimum')
+        resized_masks= np.pad(fish_masks,((0,0),(2,2),(0,0)),'minimum')
 
-resized_fish= np.pad(fish_images,((0,0),(2,2),(0,0)),'minimum')
-resized_masks= np.pad(fish_masks,((0,0),(2,2),(0,0)),'minimum')
-print(resized_fish.shape)
+        # scale data and labels to 256 x 256 x 1 to be optimal for current u-net architecture
+        scale = 8   #value by which to scale down the images, 2048/256 = 8
+        resized_fish = resize(resized_fish, (resized_fish.shape[0], resized_fish.shape[1] / scale, resized_fish.shape[2] / scale,1), anti_aliasing=True)
+        resized_masks = resize(resized_masks, (resized_masks.shape[0], resized_masks.shape[1] / scale, resized_masks.shape[2] / scale,1), anti_aliasing=True)
+        print(resized_fish.shape)
+        yield (resized_fish,resized_masks)
+
 
 # print out plots of images to see data and labels (check)
 def plot_dataset(data, data_name, label, label_name, display_num):
@@ -80,20 +85,6 @@ def plot_dataset(data, data_name, label, label_name, display_num):
 
 #plot_dataset(resized_fish,"fish", resized_masks, "masks", 4)
 
-# scale data and labels to 256 x 256 x 1 to be optimal for current u-net architecture
-scale = 8   #value by which to scale down the images, 2048/256 = 8
-resized_fish = resize(resized_fish, (resized_fish.shape[0], resized_fish.shape[1] / scale, resized_fish.shape[2] / scale,1), anti_aliasing=True)
-resized_masks = resize(resized_masks, (resized_masks.shape[0], resized_masks.shape[1] / scale, resized_masks.shape[2] / scale,1), anti_aliasing=True)
-#print(resized_fish.shape)
-
-# structure training data
-def DataGenerator(data, masks):
-    for i in range(0,len(data)):
-        yield (data[i:i+1, :], masks[i:i+1, :]) #using batch size of 1 and small number of images to test everything working
-
-
-
-#print(TrainingData.shape)
 
 # U-NET architecture, largely followed from https://github.com/zhixuhao/unet
 
@@ -151,10 +142,12 @@ def unet(pretrained_weights = None,input_size = (256,256,1)):
     return model
 
 # training 
-myData = DataGenerator(resized_fish, resized_masks)
+batch_size = 3
+
+myData = DataGenerator(batch_size, resized_fish, resized_masks, filenames_confirmed)
 model = unet()
 model_checkpoint = ModelCheckpoint('unet_fish.hdf5', monitor='loss',verbose=1, save_best_only=True)
-model.fit_generator(myData,steps_per_epoch=8,epochs=1,callbacks=[model_checkpoint])
+model.fit_generator(myData,steps_per_epoch=3,epochs=1,callbacks=[model_checkpoint])
 
 # test output
 
